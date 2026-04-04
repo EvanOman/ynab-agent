@@ -1,6 +1,6 @@
 [project]
 name = "ynab-agent"
-version = "0.7.0"
+version = "0.8.0"
 description = "Agentic budget companion for YNAB via Claude Code skills"
 requires-python = ">=3.12"
 dependencies = [

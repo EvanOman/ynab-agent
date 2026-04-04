@@ -1,5 +1,8 @@
 # ynab-agent
 
+[![CI](https://github.com/EvanOman/ynab-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/EvanOman/ynab-agent/actions/workflows/ci.yml)
+![coverage](assets/coverage.svg)
+
 A conversational budget companion for [YNAB](https://www.ynab.com/) (You Need A Budget), built as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills backed by a Python CLI.
 
 Instead of clicking through YNAB's UI to categorize transactions and rebalance your budget, you talk to an agent. It proposes, you approve. Every dollar gets a job.

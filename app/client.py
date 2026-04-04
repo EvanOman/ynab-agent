@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import os
 from datetime import date as date_cls
+from uuid import UUID
 
 import ynab
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from app.models import AccountInfo, CategoryInfo, GoalType, PayeeInfo, PlanInfo, TransactionInfo
+from app.models import (
+    AccountInfo,
+    CategorizeUpdate,
+    CategoryInfo,
+    GoalType,
+    PayeeInfo,
+    PlanInfo,
+    TransactionInfo,
+)
 from app.paths import ENV_FILE, ensure_dirs
 
 # Load .env from data directory
@@ -277,17 +286,14 @@ def _update_transactions(
 
 
 def update_transaction_categories(
-    updates: list[dict],
+    updates: list[CategorizeUpdate],
     plan_id: str | None = None,
 ) -> int:
-    """Batch update transaction categories and approve them.
-
-    updates: list of {"id": str, "category_id": str}
-    """
+    """Batch update transaction categories and approve them."""
     txns = [
         ynab.SaveTransactionWithIdOrImportId(
-            id=u["id"],
-            category_id=u["category_id"],
+            id=u.transaction_id,
+            category_id=UUID(u.category_id),
             approved=True,
         )
         for u in updates

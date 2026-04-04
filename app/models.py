@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GoalType(StrEnum):
@@ -140,7 +140,7 @@ class PlanInfo(BaseModel):
 class CategorizationDecision(BaseModel):
     """A recorded categorization decision."""
 
-    timestamp: datetime
+    timestamp: datetime = Field(default_factory=datetime.now)
     transaction_id: str
     payee_id: str | None = None
     payee_name: str | None = None
@@ -156,7 +156,7 @@ class CategorizationDecision(BaseModel):
 class RebalanceDecision(BaseModel):
     """A recorded rebalancing decision."""
 
-    timestamp: datetime
+    timestamp: datetime = Field(default_factory=datetime.now)
     from_category_id: str
     from_category_name: str
     to_category_id: str
@@ -168,7 +168,7 @@ class RebalanceDecision(BaseModel):
 class AssignmentDecision(BaseModel):
     """A recorded RTA assignment decision."""
 
-    timestamp: datetime
+    timestamp: datetime = Field(default_factory=datetime.now)
     category_id: str
     category_name: str
     amount_milliunits: int
@@ -199,6 +199,75 @@ class RebalanceProposal(BaseModel):
     to_shortfall: int  # milliunits (positive = underfunded)
     amount: int  # milliunits
     reasoning: str
+
+
+# --- Stdin input models for `apply` and `history` commands ---
+
+
+class CategorizeUpdate(BaseModel):
+    """A single transaction category update."""
+
+    transaction_id: str
+    category_id: str
+
+
+class CategorizeInput(BaseModel):
+    """Stdin schema for `apply categorize`."""
+
+    updates: list[CategorizeUpdate] = []
+
+
+class ApproveInput(BaseModel):
+    """Stdin schema for `apply approve`."""
+
+    transaction_ids: list[str] = []
+
+
+class RebalanceMove(BaseModel):
+    """A single budget rebalance move."""
+
+    from_category_id: str
+    to_category_id: str
+    from_new_budgeted: int
+    to_new_budgeted: int
+
+
+class RebalanceInput(BaseModel):
+    """Stdin schema for `apply rebalance`."""
+
+    moves: list[RebalanceMove] = []
+
+
+class Assignment(BaseModel):
+    """A single RTA assignment."""
+
+    category_id: str
+    amount: int
+
+
+class AssignInput(BaseModel):
+    """Stdin schema for `apply assign`."""
+
+    assignments: list[Assignment] = []
+    month: str = "current"
+
+
+class CategorizationRecordInput(BaseModel):
+    """Stdin schema for `history record`."""
+
+    decisions: list[CategorizationDecision] = []
+
+
+class RebalanceRecordInput(BaseModel):
+    """Stdin schema for `history record-rebalance`."""
+
+    decisions: list[RebalanceDecision] = []
+
+
+class AssignmentRecordInput(BaseModel):
+    """Stdin schema for `history record-assignment`."""
+
+    decisions: list[AssignmentDecision] = []
 
 
 class Config(BaseModel):

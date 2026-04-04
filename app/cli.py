@@ -6,8 +6,18 @@ import argparse
 import json
 import sys
 
+from pydantic import BaseModel, ValidationError
+
 from app import client, config
-from app.models import AssignmentDecision, CategorizationDecision, RebalanceDecision
+from app.models import (
+    ApproveInput,
+    AssignInput,
+    AssignmentRecordInput,
+    CategorizationRecordInput,
+    CategorizeInput,
+    RebalanceInput,
+    RebalanceRecordInput,
+)
 
 
 def _json_out(data: object) -> None:
@@ -154,62 +164,72 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _parse_stdin[T: BaseModel](model_cls: type[T]) -> T:
+    """Parse stdin JSON into a Pydantic model, exit with clear error on failure."""
+    try:
+        data = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"error": f"Invalid JSON on stdin: {e}"}))
+        sys.exit(1)
+    try:
+        return model_cls.model_validate(data)
+    except ValidationError as e:
+        print(json.dumps({"error": f"Invalid input: {e}"}))
+        sys.exit(1)
+
+
 def cmd_apply(args: argparse.Namespace) -> None:
     """Apply changes to YNAB."""
     cfg = config.load_config()
     plan_id = cfg.plan_id
-    data = json.load(sys.stdin)
 
     if args.action == "categorize":
-        updates = data.get("updates", [])
-        if not updates:
+        inp = _parse_stdin(CategorizeInput)
+        if not inp.updates:
             _json_out({"status": "ok", "updated": 0, "message": "No updates to apply."})
             return
-        count = client.update_transaction_categories(updates, plan_id=plan_id)
+        count = client.update_transaction_categories(inp.updates, plan_id=plan_id)
         _json_out({"status": "ok", "updated": count})
 
     elif args.action == "approve":
-        ids = data.get("transaction_ids", [])
-        if not ids:
+        inp = _parse_stdin(ApproveInput)
+        if not inp.transaction_ids:
             _json_out({"status": "ok", "approved": 0, "message": "No transactions to approve."})
             return
-        count = client.approve_transactions(ids, plan_id=plan_id)
+        count = client.approve_transactions(inp.transaction_ids, plan_id=plan_id)
         _json_out({"status": "ok", "approved": count})
 
     elif args.action == "rebalance":
-        moves = data.get("moves", [])
-        if not moves:
+        inp = _parse_stdin(RebalanceInput)
+        if not inp.moves:
             _json_out({"status": "ok", "moved": 0, "message": "No moves to apply."})
             return
-        for move in moves:
-            # Get current budgeted amounts and adjust
-            # The skill should compute the new budgeted values
+        for move in inp.moves:
             client.update_month_category_budgeted(
-                category_id=move["from_category_id"],
-                budgeted=move["from_new_budgeted"],
+                category_id=move.from_category_id,
+                budgeted=move.from_new_budgeted,
                 plan_id=plan_id,
             )
             client.update_month_category_budgeted(
-                category_id=move["to_category_id"],
-                budgeted=move["to_new_budgeted"],
+                category_id=move.to_category_id,
+                budgeted=move.to_new_budgeted,
                 plan_id=plan_id,
             )
-        _json_out({"status": "ok", "moved": len(moves)})
+        _json_out({"status": "ok", "moved": len(inp.moves)})
 
     elif args.action == "assign":
-        assignments = data.get("assignments", [])
-        month = data.get("month", "current")
-        if not assignments:
+        inp = _parse_stdin(AssignInput)
+        if not inp.assignments:
             _json_out({"status": "ok", "assigned": 0, "message": "No assignments to apply."})
             return
-        for a in assignments:
+        for a in inp.assignments:
             client.assign_to_category(
-                category_id=a["category_id"],
-                add_amount=a["amount"],
-                month=month,
+                category_id=a.category_id,
+                add_amount=a.amount,
+                month=inp.month,
                 plan_id=plan_id,
             )
-        _json_out({"status": "ok", "assigned": len(assignments)})
+        _json_out({"status": "ok", "assigned": len(inp.assignments)})
 
     else:
         print(json.dumps({"error": f"Unknown action: {args.action}"}))
@@ -242,25 +262,19 @@ def cmd_history(args: argparse.Namespace) -> None:
         _json_out(results)
 
     elif args.action == "record":
-        data = json.load(sys.stdin)
-        decisions_data = data.get("decisions", [])
-        decisions = [CategorizationDecision(**d) for d in decisions_data]
-        record_categorization_decisions(decisions)
-        _json_out({"status": "ok", "recorded": len(decisions)})
+        inp = _parse_stdin(CategorizationRecordInput)
+        record_categorization_decisions(inp.decisions)
+        _json_out({"status": "ok", "recorded": len(inp.decisions)})
 
     elif args.action == "record-rebalance":
-        data = json.load(sys.stdin)
-        decisions_data = data.get("decisions", [])
-        decisions = [RebalanceDecision(**d) for d in decisions_data]
-        record_rebalance_decisions(decisions)
-        _json_out({"status": "ok", "recorded": len(decisions)})
+        inp = _parse_stdin(RebalanceRecordInput)
+        record_rebalance_decisions(inp.decisions)
+        _json_out({"status": "ok", "recorded": len(inp.decisions)})
 
     elif args.action == "record-assignment":
-        data = json.load(sys.stdin)
-        decisions_data = data.get("decisions", [])
-        decisions = [AssignmentDecision(**d) for d in decisions_data]
-        record_assignment_decisions(decisions)
-        _json_out({"status": "ok", "recorded": len(decisions)})
+        inp = _parse_stdin(AssignmentRecordInput)
+        record_assignment_decisions(inp.decisions)
+        _json_out({"status": "ok", "recorded": len(inp.decisions)})
 
     elif args.action == "seed":
         cfg = config.load_config()
