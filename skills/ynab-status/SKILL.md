@@ -33,6 +33,14 @@ uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch budget-month
 
 Format the budget data as a status overview. Filter out hidden categories, internal categories, and the "Uncategorized" / "Inflow: Ready to Assign" rows from the main table.
 
+**IMPORTANT — Income vs Ready to Assign:**
+The CLI output includes three distinct top-level fields:
+- `income` — total money received this month (informational)
+- `to_be_budgeted` — the **real** Ready to Assign from the YNAB API (unassigned dollars)
+- `age_of_money` — how old the money is in days
+
+**Always use `to_be_budgeted` for Ready to Assign.** Never use the "Inflow: Ready to Assign" category balance — that's an income tracker, not unassigned money. A person can have $8,000 income and $0 Ready to Assign if every dollar is budgeted.
+
 **Calculate pace for each category:**
 - Days elapsed vs days in month (percentage)
 - Budget used vs budget total (percentage)
@@ -56,7 +64,8 @@ Flags:
 - ⚠ Dining Out: 94% spent with 60% of month remaining
 - ✅ 8 of 12 categories on track
 
-Ready to Assign: $87.00
+Ready to Assign: $87.00       ← from to_be_budgeted field, NOT income
+Age of Money: 22 days
 ```
 
 **Group by category group** if there are many categories. Show group subtotals.

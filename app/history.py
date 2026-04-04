@@ -9,8 +9,13 @@ from datetime import UTC, datetime
 
 from thefuzz import fuzz
 
-from app.models import CategorizationDecision, RebalanceDecision, TransactionInfo
-from app.paths import DECISIONS_FILE, REBALANCES_FILE
+from app.models import (
+    AssignmentDecision,
+    CategorizationDecision,
+    RebalanceDecision,
+    TransactionInfo,
+)
+from app.paths import ASSIGNMENTS_FILE, DECISIONS_FILE, REBALANCES_FILE
 
 # Fuzzy match threshold (0-100)
 FUZZY_THRESHOLD = 75
@@ -173,6 +178,14 @@ def record_rebalance_decisions(decisions: list[RebalanceDecision]) -> None:
     """Append rebalance decisions to history."""
     _ensure_history_dir()
     with open(REBALANCES_FILE, "a") as f:
+        for d in decisions:
+            f.write(d.model_dump_json() + "\n")
+
+
+def record_assignment_decisions(decisions: list[AssignmentDecision]) -> None:
+    """Append assignment decisions to history."""
+    _ensure_history_dir()
+    with open(ASSIGNMENTS_FILE, "a") as f:
         for d in decisions:
             f.write(d.model_dump_json() + "\n")
 

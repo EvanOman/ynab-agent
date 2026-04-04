@@ -7,7 +7,7 @@ import json
 import sys
 
 from app import client, config
-from app.models import CategorizationDecision, RebalanceDecision
+from app.models import AssignmentDecision, CategorizationDecision, RebalanceDecision
 
 
 def _json_out(data: object) -> None:
@@ -57,18 +57,21 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     cfg = config.load_config()
     plan_id = cfg.plan_id
 
-    if args.resource == "uncategorized":
-        sk = cfg.server_knowledge_transactions
+    if args.resource in ("uncategorized", "unapproved"):
+        # unapproved: always fetch the full list (no delta) so we see everything
+        # uncategorized: use delta tracking to avoid re-processing
+        sk = cfg.server_knowledge_transactions if args.resource == "uncategorized" else None
         transactions, new_sk = client.get_transactions(
             plan_id=plan_id,
-            type="uncategorized",
+            type=args.resource,
             last_knowledge=sk,
         )
-        cfg.server_knowledge_transactions = new_sk
-        config.save_config(cfg)
+        if args.resource == "uncategorized":
+            cfg.server_knowledge_transactions = new_sk
+            config.save_config(cfg)
         _json_out(
             {
-                "transactions": [t.model_dump() for t in transactions],
+                "transactions": [t.to_output_dict() for t in transactions],
                 "count": len(transactions),
                 "server_knowledge": new_sk,
             }
@@ -84,7 +87,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         config.save_config(cfg)
         _json_out(
             {
-                "transactions": [t.model_dump() for t in transactions],
+                "transactions": [t.to_output_dict() for t in transactions],
                 "count": len(transactions),
                 "server_knowledge": new_sk,
             }
@@ -97,7 +100,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         config.save_config(cfg)
         _json_out(
             {
-                "categories": [c.model_dump() for c in categories],
+                "categories": [c.to_output_dict() for c in categories],
                 "count": len(categories),
                 "server_knowledge": new_sk,
             }
@@ -116,14 +119,33 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             }
         )
 
-    elif args.resource == "budget-month":
-        month = args.month or "current"
-        categories = client.get_budget_month(month=month, plan_id=plan_id)
+    elif args.resource == "accounts":
+        accounts = client.get_accounts(plan_id=plan_id)
         _json_out(
             {
-                "categories": [c.model_dump() for c in categories],
+                "accounts": [a.to_output_dict() for a in accounts],
+                "count": len(accounts),
+            }
+        )
+
+    elif args.resource == "budget-month":
+        month = args.month or "current"
+        budget = client.get_budget_month(month=month, plan_id=plan_id)
+        categories = [c.to_output_dict() for c in budget.categories]
+        if args.active_only:
+            categories = [
+                c
+                for c in categories
+                if c["budgeted"] != 0 or c["activity"] != 0 or c["balance"] != 0
+            ]
+        _json_out(
+            {
+                "categories": categories,
                 "count": len(categories),
                 "month": month,
+                "income": budget.income / 1000.0,
+                "to_be_budgeted": budget.to_be_budgeted / 1000.0,
+                "age_of_money": budget.age_of_money,
             }
         )
 
@@ -146,6 +168,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
         count = client.update_transaction_categories(updates, plan_id=plan_id)
         _json_out({"status": "ok", "updated": count})
 
+    elif args.action == "approve":
+        ids = data.get("transaction_ids", [])
+        if not ids:
+            _json_out({"status": "ok", "approved": 0, "message": "No transactions to approve."})
+            return
+        count = client.approve_transactions(ids, plan_id=plan_id)
+        _json_out({"status": "ok", "approved": count})
+
     elif args.action == "rebalance":
         moves = data.get("moves", [])
         if not moves:
@@ -166,6 +196,21 @@ def cmd_apply(args: argparse.Namespace) -> None:
             )
         _json_out({"status": "ok", "moved": len(moves)})
 
+    elif args.action == "assign":
+        assignments = data.get("assignments", [])
+        month = data.get("month", "current")
+        if not assignments:
+            _json_out({"status": "ok", "assigned": 0, "message": "No assignments to apply."})
+            return
+        for a in assignments:
+            client.assign_to_category(
+                category_id=a["category_id"],
+                add_amount=a["amount"],
+                month=month,
+                plan_id=plan_id,
+            )
+        _json_out({"status": "ok", "assigned": len(assignments)})
+
     else:
         print(json.dumps({"error": f"Unknown action: {args.action}"}))
         sys.exit(1)
@@ -176,6 +221,7 @@ def cmd_history(args: argparse.Namespace) -> None:
     from app.history import (
         lookup_payee,
         lookup_payee_batch,
+        record_assignment_decisions,
         record_categorization_decisions,
         record_rebalance_decisions,
         seed_from_transactions,
@@ -207,6 +253,13 @@ def cmd_history(args: argparse.Namespace) -> None:
         decisions_data = data.get("decisions", [])
         decisions = [RebalanceDecision(**d) for d in decisions_data]
         record_rebalance_decisions(decisions)
+        _json_out({"status": "ok", "recorded": len(decisions)})
+
+    elif args.action == "record-assignment":
+        data = json.load(sys.stdin)
+        decisions_data = data.get("decisions", [])
+        decisions = [AssignmentDecision(**d) for d in decisions_data]
+        record_assignment_decisions(decisions)
         _json_out({"status": "ok", "recorded": len(decisions)})
 
     elif args.action == "seed":
@@ -264,21 +317,43 @@ def main() -> None:
     fetch_parser = subparsers.add_parser("fetch", help="Fetch data from YNAB")
     fetch_parser.add_argument(
         "resource",
-        choices=["uncategorized", "transactions", "categories", "payees", "budget-month"],
+        choices=[
+            "uncategorized",
+            "unapproved",
+            "transactions",
+            "categories",
+            "payees",
+            "accounts",
+            "budget-month",
+        ],
         help="Resource to fetch",
     )
     fetch_parser.add_argument("--since", help="Since date (ISO format, for transactions)")
     fetch_parser.add_argument("--month", help="Month (ISO format or 'current', for budget-month)")
+    fetch_parser.add_argument(
+        "--active-only",
+        action="store_true",
+        help="Filter to categories with non-zero budgeted, activity, or balance",
+    )
 
     # apply
     apply_parser = subparsers.add_parser("apply", help="Apply changes to YNAB (reads JSON stdin)")
-    apply_parser.add_argument("action", choices=["categorize", "rebalance"], help="Action to apply")
+    apply_parser.add_argument(
+        "action", choices=["categorize", "approve", "rebalance", "assign"], help="Action to apply"
+    )
 
     # history
     history_parser = subparsers.add_parser("history", help="Decision history operations")
     history_parser.add_argument(
         "action",
-        choices=["lookup", "lookup-batch", "record", "record-rebalance", "seed"],
+        choices=[
+            "lookup",
+            "lookup-batch",
+            "record",
+            "record-rebalance",
+            "record-assignment",
+            "seed",
+        ],
         help="History action",
     )
     history_parser.add_argument("--payee-id", help="Payee ID for lookup")

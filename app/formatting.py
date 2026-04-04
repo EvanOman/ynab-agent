@@ -58,6 +58,10 @@ def format_rebalance_proposals(proposals: list[RebalanceProposal]) -> list[dict]
 def format_budget_status(
     categories: list[CategoryInfo],
     month_str: str | None = None,
+    *,
+    income: float | None = None,
+    to_be_budgeted: float | None = None,
+    age_of_money: int | None = None,
 ) -> dict:
     """Format budget status overview as JSON for the skill to render."""
     today = date.today()
@@ -135,13 +139,7 @@ def format_budget_status(
         elif pace == "inactive":
             flags.append(f"💤 {cat.name} has $0 activity (budgeted ${cat.budgeted_dollars:.2f})")
 
-    # Find Ready to Assign
-    rta = next(
-        (c for c in categories if c.name == "Inflow: Ready to Assign"),
-        None,
-    )
-
-    return {
+    result = {
         "month": month_date.isoformat()[:7],
         "days_in_month": days_in_month,
         "days_remaining": days_remaining,
@@ -153,5 +151,11 @@ def format_budget_status(
             "activity": total_activity / 1000.0,
             "balance": total_balance / 1000.0,
         },
-        "ready_to_assign": rta.balance_dollars if rta else 0,
+        # to_be_budgeted is the real Ready to Assign from the YNAB API.
+        # This is NOT the same as income — income is what came in this month,
+        # Ready to Assign is what hasn't been given a job yet.
+        "to_be_budgeted": to_be_budgeted,
+        "income": income,
+        "age_of_money": age_of_money,
     }
+    return result

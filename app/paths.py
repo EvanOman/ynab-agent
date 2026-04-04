@@ -10,6 +10,7 @@ CONFIG_FILE = DATA_DIR / "config.json"
 HISTORY_DIR = DATA_DIR / "history"
 DECISIONS_FILE = HISTORY_DIR / "decisions.jsonl"
 REBALANCES_FILE = HISTORY_DIR / "rebalances.jsonl"
+ASSIGNMENTS_FILE = HISTORY_DIR / "assignments.jsonl"
 
 
 def ensure_dirs() -> None:

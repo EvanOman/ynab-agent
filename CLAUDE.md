@@ -17,7 +17,9 @@ The CLI runs via `uvx` — no installation step, dependencies auto-resolve:
 ```bash
 export YNAB_AGENT_DIR="$HOME/dev/ynab-agent"  # or wherever you cloned it
 uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch uncategorized
+uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch unapproved
 uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch categories
+uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch accounts
 uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch budget-month
 ```
 
@@ -40,6 +42,7 @@ All persistent data lives in `~/.config/ynab-agent/`:
 
 ## Architecture
 
+- **Skills:** `/ynab` is the primary daily workflow skill. Other skills (`/ynab-categorize`, `/ynab-rebalance`, `/ynab-status`) are focused sub-workflows.
 - **CLI:** Python CLI (`app/cli.py`) with subcommands for fetch, apply, history, setup, category
 - **Client:** Thin wrapper around official YNAB SDK (`app/client.py`)
 - **Models:** Pydantic models for API data (`app/models.py`)

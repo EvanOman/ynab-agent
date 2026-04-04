@@ -35,6 +35,12 @@ class TransactionInfo(BaseModel):
     def amount_dollars(self) -> float:
         return self.amount / 1000.0
 
+    def to_output_dict(self) -> dict:
+        """Serialize with dollar amounts instead of milliunits."""
+        d = self.model_dump()
+        d["amount"] = self.amount_dollars
+        return d
+
 
 class CategoryInfo(BaseModel):
     """A budget category from YNAB, simplified for agent use."""
@@ -68,6 +74,52 @@ class CategoryInfo(BaseModel):
     @property
     def goal_target_dollars(self) -> float | None:
         return self.goal_target / 1000.0 if self.goal_target is not None else None
+
+    def to_output_dict(self) -> dict:
+        """Serialize with dollar amounts instead of milliunits."""
+        d = self.model_dump()
+        d["budgeted"] = self.budgeted_dollars
+        d["activity"] = self.activity_dollars
+        d["balance"] = self.balance_dollars
+        d["goal_target"] = self.goal_target_dollars
+        d["goal_under_funded"] = (
+            self.goal_under_funded / 1000.0 if self.goal_under_funded is not None else None
+        )
+        return d
+
+
+class AccountInfo(BaseModel):
+    """A budget account from YNAB."""
+
+    id: str
+    name: str
+    type: str
+    on_budget: bool = True
+    closed: bool = False
+    balance: int = 0  # milliunits
+    cleared_balance: int = 0  # milliunits
+    uncleared_balance: int = 0  # milliunits
+    note: str | None = None
+
+    @property
+    def balance_dollars(self) -> float:
+        return self.balance / 1000.0
+
+    @property
+    def cleared_balance_dollars(self) -> float:
+        return self.cleared_balance / 1000.0
+
+    @property
+    def uncleared_balance_dollars(self) -> float:
+        return self.uncleared_balance / 1000.0
+
+    def to_output_dict(self) -> dict:
+        """Serialize with dollar amounts instead of milliunits."""
+        d = self.model_dump()
+        d["balance"] = self.balance_dollars
+        d["cleared_balance"] = self.cleared_balance_dollars
+        d["uncleared_balance"] = self.uncleared_balance_dollars
+        return d
 
 
 class PayeeInfo(BaseModel):
@@ -110,6 +162,17 @@ class RebalanceDecision(BaseModel):
     to_category_id: str
     to_category_name: str
     amount_milliunits: int
+    reasoning: str = ""
+
+
+class AssignmentDecision(BaseModel):
+    """A recorded RTA assignment decision."""
+
+    timestamp: datetime
+    category_id: str
+    category_name: str
+    amount_milliunits: int
+    month: str = "current"
     reasoning: str = ""
 
 

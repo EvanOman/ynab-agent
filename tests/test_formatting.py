@@ -104,7 +104,9 @@ class TestFormatBudgetStatus:
         assert result["categories"][0]["pace"] == "overspent"
         assert any("Dining Out" in f and "overspent" in f for f in result["flags"])
 
-    def test_ready_to_assign(self):
+    def test_to_be_budgeted(self):
+        """to_be_budgeted comes from the API month-level field, not from the
+        Inflow category balance (which is income, not unassigned money)."""
         categories = [
             CategoryInfo(
                 id="rta",
@@ -113,5 +115,6 @@ class TestFormatBudgetStatus:
                 balance=112000,
             ),
         ]
-        result = format_budget_status(categories)
-        assert result["ready_to_assign"] == 112.0
+        result = format_budget_status(categories, to_be_budgeted=45.0, income=112.0)
+        assert result["to_be_budgeted"] == 45.0
+        assert result["income"] == 112.0
