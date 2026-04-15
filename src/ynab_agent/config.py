@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from app.models import Config
-from app.paths import CONFIG_FILE, ensure_dirs
+from ynab_agent.models import Config
+from ynab_agent.paths import CONFIG_FILE, ensure_dirs
 
 
 def load_config() -> Config:

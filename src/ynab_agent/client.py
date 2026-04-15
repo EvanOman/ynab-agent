@@ -10,7 +10,7 @@ import ynab
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from app.models import (
+from ynab_agent.models import (
     AccountInfo,
     CategorizeUpdate,
     CategoryInfo,
@@ -19,7 +19,7 @@ from app.models import (
     PlanInfo,
     TransactionInfo,
 )
-from app.paths import ENV_FILE, ensure_dirs
+from ynab_agent.paths import ENV_FILE, ensure_dirs
 
 # Load .env from data directory
 ensure_dirs()
@@ -266,7 +266,128 @@ def get_budget_month(
         )
 
 
+# --- Sync / Import ---
+
+
+def trigger_import(plan_id: str | None = None) -> list[str]:
+    """Trigger YNAB to import transactions from linked accounts.
+
+    Equivalent to clicking "Import" in the YNAB app. Returns the IDs of
+    transactions that were newly imported (may be empty).
+    """
+    with _get_client() as client:
+        api = ynab.TransactionsApi(client)
+        resp = api.import_transactions(_plan_id(plan_id))
+        return [str(tid) for tid in (resp.data.transaction_ids or [])]
+
+
 # --- Write Operations ---
+
+
+def create_transaction(
+    account_id: str,
+    amount_milliunits: int,
+    date_str: str | None = None,
+    payee_name: str | None = None,
+    category_id: str | None = None,
+    memo: str | None = None,
+    cleared: str = "uncleared",
+    approved: bool = True,
+    subtransactions: list[dict] | None = None,
+    plan_id: str | None = None,
+) -> dict:
+    """Create a single transaction, optionally as a split.
+
+    For a split, pass `category_id=None` and a list of subtransactions
+    (each with `amount_milliunits` and `category_id`). Subtransaction amounts
+    must sum to `amount_milliunits`.
+
+    Returns the created transaction's id and a summary dict.
+    """
+    txn_date = date_cls.fromisoformat(date_str) if date_str else date_cls.today()
+    sub_objs = None
+    if subtransactions:
+        sub_objs = [
+            ynab.SaveSubTransaction(
+                amount=s["amount_milliunits"],
+                category_id=UUID(s["category_id"]) if s.get("category_id") else None,
+                payee_name=s.get("payee_name"),
+                memo=s.get("memo"),
+            )
+            for s in subtransactions
+        ]
+    new_txn = ynab.NewTransaction(
+        account_id=UUID(account_id),
+        var_date=txn_date,
+        amount=amount_milliunits,
+        payee_name=payee_name,
+        category_id=UUID(category_id) if category_id else None,
+        memo=memo,
+        cleared=ynab.TransactionClearedStatus(cleared),
+        approved=approved,
+        subtransactions=sub_objs,
+    )
+    wrapper = ynab.PostTransactionsWrapper(transaction=new_txn)
+    with _get_client() as client:
+        api = ynab.TransactionsApi(client)
+        resp = api.create_transaction(_plan_id(plan_id), wrapper)
+        t = resp.data.transaction
+        return {
+            "id": str(t.id) if t else None,
+            "amount_milliunits": t.amount if t else None,
+            "subtransaction_count": len(t.subtransactions) if (t and t.subtransactions) else 0,
+        }
+
+
+def get_transaction(
+    transaction_id: str,
+    plan_id: str | None = None,
+) -> dict:
+    """Fetch a single transaction with its subtransactions. Returns a raw dict."""
+    with _get_client() as client:
+        api = ynab.TransactionsApi(client)
+        resp = api.get_transaction_by_id(_plan_id(plan_id), transaction_id)
+        t = resp.data.transaction
+        return {
+            "id": str(t.id),
+            "amount": t.amount,
+            "category_id": str(t.category_id) if t.category_id else None,
+            "subtransactions": [
+                {
+                    "category_id": str(s.category_id) if s.category_id else None,
+                    "amount": s.amount,
+                }
+                for s in (t.subtransactions or [])
+                if not s.deleted
+            ],
+        }
+
+
+def delete_transaction(
+    transaction_id: str,
+    plan_id: str | None = None,
+) -> dict:
+    """Delete a transaction by ID. Returns the deleted transaction summary."""
+    with _get_client() as client:
+        api = ynab.TransactionsApi(client)
+        resp = api.delete_transaction(_plan_id(plan_id), transaction_id)
+        t = resp.data.transaction
+        return {"id": str(t.id), "amount": t.amount, "deleted": t.deleted}
+
+
+def nudge_category(
+    category_id: str,
+    month: str = "current",
+    plan_id: str | None = None,
+) -> None:
+    """Force YNAB to recompute a category's month aggregate by toggling budget by 1 milliunit.
+
+    Workaround for a YNAB API quirk where deleted or modified split transactions
+    leave ghost activity in the month-aggregate view until the category's budget
+    is edited.
+    """
+    assign_to_category(category_id=category_id, add_amount=1, month=month, plan_id=plan_id)
+    assign_to_category(category_id=category_id, add_amount=-1, month=month, plan_id=plan_id)
 
 
 def _update_transactions(

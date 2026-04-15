@@ -9,13 +9,13 @@ from datetime import UTC, datetime
 
 from thefuzz import fuzz
 
-from app.models import (
+from ynab_agent.models import (
     AssignmentDecision,
     CategorizationDecision,
     RebalanceDecision,
     TransactionInfo,
 )
-from app.paths import ASSIGNMENTS_FILE, DECISIONS_FILE, REBALANCES_FILE
+from ynab_agent.paths import ASSIGNMENTS_FILE, DECISIONS_FILE, REBALANCES_FILE
 
 # Fuzzy match threshold (0-100)
 FUZZY_THRESHOLD = 75
@@ -25,7 +25,7 @@ CORRECTION_WEIGHT = 3
 
 
 def _ensure_history_dir() -> None:
-    from app.paths import ensure_dirs
+    from ynab_agent.paths import ensure_dirs
 
     ensure_dirs()
 

@@ -4,24 +4,24 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from app.history import (
+from ynab_agent.history import (
     _normalize_payee_name,
     lookup_payee,
     record_categorization_decisions,
     seed_from_transactions,
 )
-from app.models import CategorizationDecision, TransactionInfo
+from ynab_agent.models import CategorizationDecision, TransactionInfo
 
 
 @pytest.fixture(autouse=True)
 def _clean_history(tmp_path, monkeypatch):
     """Use a temp directory for history files."""
-    monkeypatch.setattr("app.paths.HISTORY_DIR", tmp_path)
-    monkeypatch.setattr("app.paths.DECISIONS_FILE", tmp_path / "decisions.jsonl")
-    monkeypatch.setattr("app.paths.REBALANCES_FILE", tmp_path / "rebalances.jsonl")
+    monkeypatch.setattr("ynab_agent.paths.HISTORY_DIR", tmp_path)
+    monkeypatch.setattr("ynab_agent.paths.DECISIONS_FILE", tmp_path / "decisions.jsonl")
+    monkeypatch.setattr("ynab_agent.paths.REBALANCES_FILE", tmp_path / "rebalances.jsonl")
     # Also patch the already-imported names in app.history
-    monkeypatch.setattr("app.history.DECISIONS_FILE", tmp_path / "decisions.jsonl")
-    monkeypatch.setattr("app.history.REBALANCES_FILE", tmp_path / "rebalances.jsonl")
+    monkeypatch.setattr("ynab_agent.history.DECISIONS_FILE", tmp_path / "decisions.jsonl")
+    monkeypatch.setattr("ynab_agent.history.REBALANCES_FILE", tmp_path / "rebalances.jsonl")
 
 
 def _make_decision(

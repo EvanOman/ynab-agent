@@ -5,14 +5,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.models import AssignmentDecision
+from ynab_agent.models import AssignmentDecision
 
 
 @pytest.fixture(autouse=True)
 def _clean_history(tmp_path, monkeypatch):
     """Use a temp directory for history files."""
-    monkeypatch.setattr("app.paths.HISTORY_DIR", tmp_path)
-    monkeypatch.setattr("app.paths.ASSIGNMENTS_FILE", tmp_path / "assignments.jsonl")
+    monkeypatch.setattr("ynab_agent.paths.HISTORY_DIR", tmp_path)
+    monkeypatch.setattr("ynab_agent.paths.ASSIGNMENTS_FILE", tmp_path / "assignments.jsonl")
 
 
 def _make_assignment(

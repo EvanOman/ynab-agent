@@ -2,8 +2,8 @@
 
 from datetime import date
 
-from app.formatting import format_budget_status, format_categorization_proposals
-from app.models import CategoryInfo, CategoryProposal, GoalType, TransactionInfo
+from ynab_agent.formatting import format_budget_status, format_categorization_proposals
+from ynab_agent.models import CategoryInfo, CategoryProposal, GoalType, TransactionInfo
 
 
 class TestFormatCategorizationProposals:

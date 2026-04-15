@@ -9,13 +9,14 @@ from datetime import date, timedelta
 
 from pydantic import BaseModel, ValidationError
 
-from app import client, config
-from app.models import (
+from ynab_agent import client, config
+from ynab_agent.models import (
     ApproveInput,
     AssignInput,
     AssignmentRecordInput,
     CategorizationRecordInput,
     CategorizeInput,
+    CreateTransactionInput,
     RebalanceInput,
     RebalanceRecordInput,
     dollars_to_milliunits,
@@ -257,6 +258,64 @@ def cmd_apply(args: argparse.Namespace) -> None:
             )
         _json_out({"status": "ok", "assigned": len(inp.assignments)})
 
+    elif args.action == "create-transaction":
+        inp = _parse_stdin(CreateTransactionInput)
+        amount_mu = dollars_to_milliunits(inp.amount)
+        subs = None
+        if inp.subtransactions:
+            subs = [
+                {
+                    "amount_milliunits": dollars_to_milliunits(s.amount),
+                    "category_id": s.category_id,
+                    "payee_name": s.payee_name,
+                    "memo": s.memo,
+                }
+                for s in inp.subtransactions
+            ]
+            sub_sum = sum(s["amount_milliunits"] for s in subs)
+            if sub_sum != amount_mu:
+                print(
+                    json.dumps(
+                        {
+                            "error": "Subtransaction amounts do not sum to transaction amount.",
+                            "total_milliunits": amount_mu,
+                            "subtransactions_sum_milliunits": sub_sum,
+                        }
+                    )
+                )
+                sys.exit(1)
+        result = client.create_transaction(
+            account_id=inp.account_id,
+            amount_milliunits=amount_mu,
+            date_str=inp.date,
+            payee_name=inp.payee_name,
+            category_id=inp.category_id,
+            memo=inp.memo,
+            cleared=inp.cleared,
+            approved=inp.approved,
+            subtransactions=subs,
+            plan_id=plan_id,
+        )
+        _json_out({"status": "ok", "transaction": result})
+
+    elif args.action == "delete-transaction":
+        data = json.load(sys.stdin)
+        tid = data.get("transaction_id")
+        if not tid:
+            print(json.dumps({"error": "transaction_id required on stdin."}))
+            sys.exit(1)
+        # Capture affected categories before deletion so we can nudge them
+        # to force YNAB's month aggregate to recompute (otherwise deleted
+        # split subs leave ghost activity baked into the category totals).
+        pre = client.get_transaction(tid, plan_id=plan_id)
+        affected = {s["category_id"] for s in pre["subtransactions"] if s["category_id"]}
+        if pre.get("category_id"):
+            affected.add(pre["category_id"])
+        client.delete_transaction(tid, plan_id=plan_id)
+        for cat_id in affected:
+            client.nudge_category(cat_id, plan_id=plan_id)
+        _json_out({"status": "ok", "deleted": tid, "nudged_categories": sorted(affected)})
+
     else:
         print(json.dumps({"error": f"Unknown action: {args.action}"}))
         sys.exit(1)
@@ -264,7 +323,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
 def cmd_history(args: argparse.Namespace) -> None:
     """Decision history operations."""
-    from app.history import (
+    from ynab_agent.history import (
         lookup_payee,
         lookup_payee_batch,
         record_assignment_decisions,
@@ -350,6 +409,17 @@ def cmd_category(args: argparse.Namespace) -> None:
     _json_out({"status": "ok", "category": result})
 
 
+def cmd_sync(args: argparse.Namespace) -> None:
+    """Trigger YNAB to import transactions from linked accounts.
+
+    Equivalent to clicking "Import" in the YNAB web app. Without this,
+    the API can return stale data when bank sync hasn't run recently.
+    """
+    cfg = config.load_config()
+    imported_ids = client.trigger_import(plan_id=cfg.plan_id)
+    _json_out({"status": "ok", "imported_count": len(imported_ids), "imported_ids": imported_ids})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ynab-agent", description="YNAB budget agent CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -357,6 +427,9 @@ def main() -> None:
     # setup
     setup_parser = subparsers.add_parser("setup", help="Configure YNAB connection")
     setup_parser.add_argument("--plan-id", help="Plan/budget ID to use")
+
+    # sync
+    subparsers.add_parser("sync", help="Trigger YNAB bank import (like opening the web app)")
 
     # fetch
     fetch_parser = subparsers.add_parser("fetch", help="Fetch data from YNAB")
@@ -385,7 +458,16 @@ def main() -> None:
     # apply
     apply_parser = subparsers.add_parser("apply", help="Apply changes to YNAB (reads JSON stdin)")
     apply_parser.add_argument(
-        "action", choices=["categorize", "approve", "rebalance", "assign"], help="Action to apply"
+        "action",
+        choices=[
+            "categorize",
+            "approve",
+            "rebalance",
+            "assign",
+            "create-transaction",
+            "delete-transaction",
+        ],
+        help="Action to apply",
     )
 
     # history
@@ -424,6 +506,8 @@ def main() -> None:
 
     if args.command == "setup":
         cmd_setup(args)
+    elif args.command == "sync":
+        cmd_sync(args)
     elif args.command == "fetch":
         cmd_fetch(args)
     elif args.command == "apply":

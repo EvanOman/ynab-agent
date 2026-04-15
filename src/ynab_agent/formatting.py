@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.models import CategoryInfo, CategoryProposal, RebalanceProposal
+from ynab_agent.models import CategoryInfo, CategoryProposal, RebalanceProposal
 
 
 def format_categorization_proposals(proposals: list[CategoryProposal]) -> list[dict]:

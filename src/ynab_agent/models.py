@@ -264,6 +264,33 @@ class AssignInput(BaseModel):
     month: str = "current"
 
 
+class Subtransaction(BaseModel):
+    """A single split line within a transaction. Amount is in dollars."""
+
+    amount: float  # dollars — signed (negative for outflow portion)
+    category_id: str | None = None
+    payee_name: str | None = None
+    memo: str | None = None
+
+
+class CreateTransactionInput(BaseModel):
+    """Stdin schema for `apply create-transaction`.
+
+    For a split transaction, leave `category_id` null and provide `subtransactions`
+    whose dollar amounts sum to `amount`.
+    """
+
+    account_id: str
+    amount: float  # dollars — signed (negative for outflow)
+    date: str | None = None  # ISO date; defaults to today
+    payee_name: str | None = None
+    category_id: str | None = None
+    memo: str | None = None
+    cleared: str = "uncleared"  # "cleared" | "uncleared" | "reconciled"
+    approved: bool = True
+    subtransactions: list[Subtransaction] = []
+
+
 class CategorizationRecordInput(BaseModel):
     """Stdin schema for `history record`."""
 

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from app.models import CategoryInfo, Config, GoalType, TransactionInfo, dollars_to_milliunits
+from ynab_agent.models import CategoryInfo, Config, GoalType, TransactionInfo, dollars_to_milliunits
 
 
 def test_transaction_amount_dollars():

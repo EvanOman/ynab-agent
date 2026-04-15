@@ -1,7 +1,7 @@
 ---
 name: ynab
 description: Daily YNAB budget sync. Categorize + approve transactions, review budget status, rebalance if needed, check account balances. The single entry point for daily budget management.
-allowed-tools: Bash(uvx --from * ynab-agent *), Bash(echo *), Bash(cat *), Bash(uv cache prune *), Read, AskUserQuestion
+allowed-tools: Bash(uvx --from * ynab-agent *), Bash(echo *), Bash(cat *), Bash(uv cache prune *), Bash(sleep *), Read, AskUserQuestion
 user-invocable: true
 ---
 
@@ -27,7 +27,39 @@ Note: After code changes, bump the version in `pyproject.toml` so `uvx` picks up
 
 ---
 
-## Pre-flight: Load Context + Fetch ALL Data
+## Workflow Order (NON-NEGOTIABLE)
+
+The steps are ordered deliberately. **Do not reorder them.** Each depends on the previous being complete and accurate:
+
+1. **Sync** — tell YNAB to pull the latest from banks (critical — otherwise data is stale)
+2. **Fetch** — pull fresh transactions, budget-month, accounts
+3. **Categorize** — every transaction gets a category. This is pure classification and has nothing to do with whether there's money to cover it.
+4. **Approve** — confirm categorized transactions (categorize auto-approves, but catch the stragglers)
+5. **Allocate / Rebalance** — only after the picture is complete and accurate, decide how to cover overspending and assign any remaining RTA
+
+**Why this order matters:** Categorization is black-and-white — a transaction belongs to a specific category regardless of budget state. Allocation is a response to the final categorized picture. If you allocate before categorizing, you're working off a moving target and will have to rebalance again.
+
+---
+
+## Step 0: Sync — Trigger YNAB bank import
+
+**Always run this first.** The YNAB API returns whatever state the server currently has. If bank sync hasn't run recently, you'll get stale data (missing transactions, wrong balances, phantom "clean" status). Opening the YNAB web app triggers a sync — this command does the same thing headlessly.
+
+```bash
+uvx --from "$YNAB_AGENT_DIR" ynab-agent sync
+```
+
+After `sync` returns, wait ~5 seconds for YNAB to finish processing before fetching:
+
+```bash
+sleep 5
+```
+
+Then proceed to Step 1. If `sync` errors, report it and stop — fetching stale data is worse than stopping.
+
+---
+
+## Step 1: Pre-flight — Load Context + Fetch ALL Data
 
 **Run everything in parallel.** These calls are independent — fire them all at once using parallel tool calls in a single message:
 
@@ -48,21 +80,31 @@ That's **7 parallel calls in one message**. Wait for all to return, then process
 
 If config doesn't exist or has no `plan_id`, tell the user to run `/ynab-setup` first.
 
+### Smell check (catch stale data)
+
+After the fetches return, before proceeding, check for this suspicious pattern:
+
+- `uncategorized == 0` **AND** `unapproved == 0` **AND** no negative balances in budget-month
+
+If all three are true, pause and ask the user: *"YNAB shows nothing to do. Can you confirm your dashboard reflects the same? If it shows pending items I'm missing, we may need another sync."* This catches the case where `sync` ran but bank import is still in flight on YNAB's side.
+
 - **philosophy.md** is the agent's soul — zero-based budgeting principles, tone, framing. Read it and internalize it. Don't recite it — let it inform your voice.
 - **context.md** has workflow preferences: pay schedule, category notes, rebalancing strategy. Apply relevant context throughout.
 - If the user gives new hints or corrections during the session, offer to update context.md.
 
 ---
 
-## Step 1: Transactions — Categorize & Approve
+## Step 2: Categorize (BEFORE any allocation talk)
 
 Use the uncategorized and unapproved results from pre-flight. **Do NOT re-fetch.**
 
-### 1a. Uncategorized transactions
+**Rule:** Categorize everything first. Do not discuss budget allocation, overspending coverage, or Ready to Assign moves until every transaction has a category. Categorization is independent of whether money exists to cover it.
 
-If count is 0 → say "No uncategorized transactions" and skip to 1c.
+### 2a. Uncategorized transactions
 
-### 1b. Propose categories and apply
+If count is 0 → say "No uncategorized transactions" and skip to 2c.
+
+### 2b. Propose categories and apply
 
 - Look up decision history for each payee (`ynab-agent history lookup-batch`)
 - Fetch the full category list (`ynab-agent fetch categories`) for proposals
@@ -81,7 +123,7 @@ echo '{"updates": [{"id": "...", "category_id": "..."}]}' | uvx --from "$YNAB_AG
 echo '{"decisions": [...]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent history record
 ```
 
-### 1c. Unapproved transactions (ALWAYS check this)
+### 2c. Unapproved transactions (ALWAYS check this)
 
 **This step is not optional.** Use the unapproved results from pre-flight. Auto-imported transactions often arrive already categorized but unapproved.
 
@@ -95,11 +137,17 @@ echo '{"transaction_ids": ["...", "..."]}' | uvx --from "$YNAB_AGENT_DIR" ynab-a
 
 **Goal:** 0 uncategorized, 0 unapproved when this step is done.
 
+**After categorizing + approving, re-fetch budget-month.** Category balances and overspending numbers will have shifted as newly-categorized transactions land in their categories. Everything from Step 3 onward uses this updated snapshot.
+
+```bash
+uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch budget-month
+```
+
 ---
 
-## Step 2: Budget Status
+## Step 3: Budget Status
 
-Use the budget-month results from pre-flight. **Do NOT re-fetch.**
+Use the REFRESHED budget-month results (post-categorization).
 
 The output includes:
 - `to_be_budgeted` — the **real** Ready to Assign (unassigned dollars). This is NOT income.
@@ -123,9 +171,9 @@ The output includes:
 
 ---
 
-## Step 3: Rebalance (if needed)
+## Step 4: Rebalance (if needed)
 
-Use the budget-month results from pre-flight. **Do NOT re-fetch.**
+Use the REFRESHED budget-month data from Step 2.
 
 Trigger rebalancing if any of these are true:
 - Ready to Assign > $0 (dollars without jobs)
@@ -142,7 +190,7 @@ If everything looks balanced, say so and skip.
 
 ---
 
-## Step 4: Account Balances
+## Step 5: Account Balances
 
 Use the accounts results from pre-flight. **Do NOT re-fetch.**
 
