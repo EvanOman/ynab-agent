@@ -87,22 +87,18 @@ After moves: Ready to Assign will be $87.00
 
 ### 5. Apply approved moves
 
-For each approved move, compute the new budgeted amounts:
-- **From category:** current budgeted - move amount
-- **To category:** current budgeted + move amount
-
-Then apply each move:
+Just specify the category IDs and the dollar amount to move — the CLI handles the arithmetic:
 
 ```bash
-echo '{"moves": [{"from_category_id": "id", "from_new_budgeted": 80000, "to_category_id": "id", "to_new_budgeted": 240000}]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent apply rebalance
+echo '{"moves": [{"from_category_id": "id", "to_category_id": "id", "amount": 40.00}]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent apply rebalance
 ```
 
-**IMPORTANT:** Amounts in the apply command are in **milliunits** (multiply dollars by 1000).
+All amounts are in **dollars** (e.g., 40.00 = $40).
 
 ### 6. Record decisions
 
 ```bash
-echo '{"decisions": [{"timestamp": "...", "from_category_id": "...", "from_category_name": "...", "to_category_id": "...", "to_category_name": "...", "amount_milliunits": 40000, "reasoning": "..."}]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent history record-rebalance
+echo '{"decisions": [{"from_category_id": "...", "from_category_name": "...", "to_category_id": "...", "to_category_name": "...", "amount": 40.00, "reasoning": "..."}]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent history record-rebalance
 ```
 
 ### 7. Summary
@@ -118,10 +114,10 @@ When the user disagrees with a YNAB goal or target, suggest they change it upstr
 **To update a category's goal target in YNAB:**
 
 ```bash
-uvx --from "$YNAB_AGENT_DIR" ynab-agent category <category_id> --goal-target <milliunits>
+uvx --from "$YNAB_AGENT_DIR" ynab-agent category <category_id> --goal-target <dollars>
 ```
 
 - `--goal-target 0` — zero out the goal
-- `--goal-target 250000` — set goal to $250
+- `--goal-target 250` — set goal to $250
 - `--name "New Name"` — rename the category
 - `--note "Some note"` — update the category note

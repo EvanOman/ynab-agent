@@ -204,7 +204,7 @@ def seed_from_transactions(transactions: list[TransactionInfo]) -> int:
                 transaction_id=t.id,
                 payee_id=t.payee_id,
                 payee_name=t.payee_name,
-                amount_milliunits=t.amount,
+                amount=t.amount_dollars,
                 proposed_category_id=t.category_id,
                 proposed_category_name=t.category_name or "",
                 final_category_id=t.category_id,

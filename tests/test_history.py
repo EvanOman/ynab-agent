@@ -36,7 +36,7 @@ def _make_decision(
         transaction_id="t1",
         payee_id=payee_id,
         payee_name=payee_name,
-        amount_milliunits=-45000,
+        amount=-45.0,
         proposed_category_id=category_id,
         proposed_category_name=category_name,
         final_category_id=category_id,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date, timedelta
 
 from pydantic import BaseModel, ValidationError
 
@@ -17,6 +18,7 @@ from app.models import (
     CategorizeInput,
     RebalanceInput,
     RebalanceRecordInput,
+    dollars_to_milliunits,
 )
 
 
@@ -67,18 +69,33 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     cfg = config.load_config()
     plan_id = cfg.plan_id
 
-    if args.resource in ("uncategorized", "unapproved"):
-        # unapproved: always fetch the full list (no delta) so we see everything
-        # uncategorized: use delta tracking to avoid re-processing
-        sk = cfg.server_knowledge_transactions if args.resource == "uncategorized" else None
+    if args.resource == "pending":
+        since = args.since or (date.today() - timedelta(days=14)).isoformat()
+        transactions, _ = client.get_transactions(plan_id=plan_id, since_date=since)
+        pending = [t for t in transactions if t.cleared == "uncleared"]
+        _json_out(
+            {
+                "transactions": [t.to_output_dict() for t in pending],
+                "count": len(pending),
+            }
+        )
+
+    elif args.resource in ("uncategorized", "unapproved"):
+        # Always fetch the full list (no delta) for both — these are "show me
+        # everything currently matching this filter" queries, not "what's new".
+        # Using server_knowledge here would hide items that existed before the
+        # last sync point.
         transactions, new_sk = client.get_transactions(
             plan_id=plan_id,
             type=args.resource,
-            last_knowledge=sk,
         )
         if args.resource == "uncategorized":
-            cfg.server_knowledge_transactions = new_sk
-            config.save_config(cfg)
+            # Filter out transfers between budget accounts — they legitimately
+            # have no category in YNAB but aren't "uncategorized" in the
+            # meaningful sense.
+            transactions = [
+                t for t in transactions if not (t.payee_name or "").startswith("Transfer :")
+            ]
         _json_out(
             {
                 "transactions": [t.to_output_dict() for t in transactions],
@@ -204,17 +221,26 @@ def cmd_apply(args: argparse.Namespace) -> None:
         if not inp.moves:
             _json_out({"status": "ok", "moved": 0, "message": "No moves to apply."})
             return
+        # Fetch current budget to compute new absolute values
+        budget = client.get_budget_month(plan_id=plan_id)
+        cat_budgeted = {c.id: c.budgeted for c in budget.categories}
         for move in inp.moves:
+            amount_mu = dollars_to_milliunits(move.amount)
+            from_current = cat_budgeted.get(move.from_category_id, 0)
+            to_current = cat_budgeted.get(move.to_category_id, 0)
             client.update_month_category_budgeted(
                 category_id=move.from_category_id,
-                budgeted=move.from_new_budgeted,
+                budgeted=from_current - amount_mu,
                 plan_id=plan_id,
             )
             client.update_month_category_budgeted(
                 category_id=move.to_category_id,
-                budgeted=move.to_new_budgeted,
+                budgeted=to_current + amount_mu,
                 plan_id=plan_id,
             )
+            # Update local state for chained moves
+            cat_budgeted[move.from_category_id] = from_current - amount_mu
+            cat_budgeted[move.to_category_id] = to_current + amount_mu
         _json_out({"status": "ok", "moved": len(inp.moves)})
 
     elif args.action == "assign":
@@ -225,7 +251,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         for a in inp.assignments:
             client.assign_to_category(
                 category_id=a.category_id,
-                add_amount=a.amount,
+                add_amount=dollars_to_milliunits(a.amount),
                 month=inp.month,
                 plan_id=plan_id,
             )
@@ -248,10 +274,11 @@ def cmd_history(args: argparse.Namespace) -> None:
     )
 
     if args.action == "lookup":
+        amount_mu = dollars_to_milliunits(args.amount) if args.amount is not None else None
         result = lookup_payee(
             payee_id=args.payee_id,
             payee_name=args.payee_name,
-            amount=int(args.amount) if args.amount else None,
+            amount=amount_mu,
         )
         _json_out(result)
 
@@ -280,8 +307,6 @@ def cmd_history(args: argparse.Namespace) -> None:
         cfg = config.load_config()
         since = args.since or "3 months"
         # Fetch recent categorized transactions
-        from datetime import date, timedelta
-
         if since.endswith("months"):
             months = int(since.split()[0])
             since_date = (date.today() - timedelta(days=months * 30)).isoformat()
@@ -310,12 +335,18 @@ def cmd_history(args: argparse.Namespace) -> None:
 
 def cmd_category(args: argparse.Namespace) -> None:
     """Update category properties."""
+    goal_target_mu = (
+        dollars_to_milliunits(args.goal_target) if args.goal_target is not None else None
+    )
     result = client.update_category(
         category_id=args.category_id,
-        goal_target=args.goal_target,
+        goal_target=goal_target_mu,
         name=args.name,
         note=args.note,
     )
+    # Convert milliunits to dollars in output
+    if result.get("goal_target") is not None:
+        result["goal_target"] = result["goal_target"] / 1000.0
     _json_out({"status": "ok", "category": result})
 
 
@@ -334,6 +365,7 @@ def main() -> None:
         choices=[
             "uncategorized",
             "unapproved",
+            "pending",
             "transactions",
             "categories",
             "payees",
@@ -372,7 +404,9 @@ def main() -> None:
     )
     history_parser.add_argument("--payee-id", help="Payee ID for lookup")
     history_parser.add_argument("--payee-name", help="Payee name for lookup")
-    history_parser.add_argument("--amount", help="Transaction amount in milliunits for lookup")
+    history_parser.add_argument(
+        "--amount", type=float, help="Transaction amount in dollars for lookup"
+    )
     history_parser.add_argument(
         "--since", help="How far back to seed (e.g., '3 months' or ISO date)"
     )
@@ -381,7 +415,7 @@ def main() -> None:
     cat_parser = subparsers.add_parser("category", help="Update category properties")
     cat_parser.add_argument("category_id", help="Category ID to update")
     cat_parser.add_argument(
-        "--goal-target", type=int, help="New goal target in milliunits (0 to zero out)"
+        "--goal-target", type=float, help="New goal target in dollars (0 to zero out)"
     )
     cat_parser.add_argument("--name", help="New category name")
     cat_parser.add_argument("--note", help="New category note")

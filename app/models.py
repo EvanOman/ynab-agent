@@ -8,6 +8,18 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 
+def dollars_to_milliunits(dollars: float) -> int:
+    """Convert a dollar amount to YNAB milliunits, rounded to the nearest cent.
+
+    Uses Decimal to avoid IEEE 754 floating-point artifacts (e.g., 49.995
+    being represented as 49.99499... and rounding down instead of up).
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+
+    d = Decimal(str(dollars)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return int(d * 1000)
+
+
 class GoalType(StrEnum):
     TARGET_BALANCE = "TB"
     TARGET_BALANCE_BY_DATE = "TBD"
@@ -29,6 +41,7 @@ class TransactionInfo(BaseModel):
     account_name: str | None = None
     memo: str | None = None
     approved: bool = False
+    cleared: str = "uncleared"  # "cleared", "uncleared", or "reconciled"
     is_split: bool = False
 
     @property
@@ -144,7 +157,7 @@ class CategorizationDecision(BaseModel):
     transaction_id: str
     payee_id: str | None = None
     payee_name: str | None = None
-    amount_milliunits: int = 0
+    amount: float = 0  # dollars
     proposed_category_id: str | None = None
     proposed_category_name: str | None = None
     final_category_id: str
@@ -161,7 +174,7 @@ class RebalanceDecision(BaseModel):
     from_category_name: str
     to_category_id: str
     to_category_name: str
-    amount_milliunits: int
+    amount: float  # dollars
     reasoning: str = ""
 
 
@@ -171,7 +184,7 @@ class AssignmentDecision(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     category_id: str
     category_name: str
-    amount_milliunits: int
+    amount: float  # dollars
     month: str = "current"
     reasoning: str = ""
 
@@ -224,12 +237,11 @@ class ApproveInput(BaseModel):
 
 
 class RebalanceMove(BaseModel):
-    """A single budget rebalance move."""
+    """A single budget rebalance move. Amount is in dollars."""
 
     from_category_id: str
     to_category_id: str
-    from_new_budgeted: int
-    to_new_budgeted: int
+    amount: float  # dollars to move
 
 
 class RebalanceInput(BaseModel):
@@ -239,10 +251,10 @@ class RebalanceInput(BaseModel):
 
 
 class Assignment(BaseModel):
-    """A single RTA assignment."""
+    """A single RTA assignment. Amount is in dollars."""
 
     category_id: str
-    amount: int
+    amount: float  # dollars
 
 
 class AssignInput(BaseModel):

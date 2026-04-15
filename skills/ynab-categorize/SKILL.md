@@ -110,11 +110,10 @@ echo '{"decisions": [...]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent history re
 Each decision object:
 ```json
 {
-  "timestamp": "2026-04-02T14:30:00Z",
   "transaction_id": "abc123",
   "payee_id": "payee-uuid",
   "payee_name": "TRADER JOES",
-  "amount_milliunits": -45230,
+  "amount": -45.23,
   "proposed_category_id": "cat-id",
   "proposed_category_name": "Groceries",
   "final_category_id": "cat-id",

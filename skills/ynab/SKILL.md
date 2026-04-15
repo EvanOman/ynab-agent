@@ -16,21 +16,6 @@ The daily budget workflow. One skill, one loop, until everything is clean:
 - Ready to Assign as close to $0 as practical
 - Account balances reviewed
 
-## Pre-flight
-
-```bash
-YNAB_AGENT_DIR="${YNAB_AGENT_DIR:-$HOME/dev/ynab-agent}"
-cat "$YNAB_AGENT_DIR/philosophy.md" 2>/dev/null
-cat ~/.config/ynab-agent/context.md 2>/dev/null
-cat ~/.config/ynab-agent/config.json 2>/dev/null
-```
-
-If config doesn't exist or has no `plan_id`, tell the user to run `/ynab-setup` first.
-
-- **philosophy.md** is the agent's soul — zero-based budgeting principles, tone, framing. Read it and internalize it. Don't recite it — let it inform your voice.
-- **context.md** has workflow preferences: pay schedule, category notes, rebalancing strategy. Apply relevant context throughout.
-- If the user gives new hints or corrections during the session, offer to update context.md.
-
 ## CLI Pattern
 
 ```bash
@@ -42,17 +27,40 @@ Note: After code changes, bump the version in `pyproject.toml` so `uvx` picks up
 
 ---
 
-## Step 1: Transactions — Categorize & Approve
+## Pre-flight: Load Context + Fetch ALL Data
 
-The first thing to handle: what's new and needs attention?
-
-### 1a. Fetch uncategorized transactions
+**Run everything in parallel.** These calls are independent — fire them all at once using parallel tool calls in a single message:
 
 ```bash
+# Context (3 parallel reads)
+cat "$YNAB_AGENT_DIR/philosophy.md" 2>/dev/null
+cat ~/.config/ynab-agent/context.md 2>/dev/null
+cat ~/.config/ynab-agent/config.json 2>/dev/null
+
+# Data (4 parallel fetches — run these in the SAME batch as the reads above)
 uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch uncategorized
+uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch unapproved
+uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch budget-month
+uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch accounts
 ```
 
-If none → say "No uncategorized transactions" and skip to 1c.
+That's **7 parallel calls in one message**. Wait for all to return, then process results in order below.
+
+If config doesn't exist or has no `plan_id`, tell the user to run `/ynab-setup` first.
+
+- **philosophy.md** is the agent's soul — zero-based budgeting principles, tone, framing. Read it and internalize it. Don't recite it — let it inform your voice.
+- **context.md** has workflow preferences: pay schedule, category notes, rebalancing strategy. Apply relevant context throughout.
+- If the user gives new hints or corrections during the session, offer to update context.md.
+
+---
+
+## Step 1: Transactions — Categorize & Approve
+
+Use the uncategorized and unapproved results from pre-flight. **Do NOT re-fetch.**
+
+### 1a. Uncategorized transactions
+
+If count is 0 → say "No uncategorized transactions" and skip to 1c.
 
 ### 1b. Propose categories and apply
 
@@ -73,13 +81,9 @@ echo '{"updates": [{"id": "...", "category_id": "..."}]}' | uvx --from "$YNAB_AG
 echo '{"decisions": [...]}' | uvx --from "$YNAB_AGENT_DIR" ynab-agent history record
 ```
 
-### 1c. Check for unapproved transactions (ALWAYS run this)
+### 1c. Unapproved transactions (ALWAYS check this)
 
-**This step is not optional.** Always fetch unapproved transactions, even when there were zero uncategorized transactions above. Auto-imported transactions often arrive already categorized but unapproved.
-
-```bash
-uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch unapproved
-```
+**This step is not optional.** Use the unapproved results from pre-flight. Auto-imported transactions often arrive already categorized but unapproved.
 
 If count is 0, report "No unapproved transactions" and move on.
 
@@ -95,11 +99,7 @@ echo '{"transaction_ids": ["...", "..."]}' | uvx --from "$YNAB_AGENT_DIR" ynab-a
 
 ## Step 2: Budget Status
 
-Now that transactions are clean, what does the budget look like?
-
-```bash
-uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch budget-month
-```
+Use the budget-month results from pre-flight. **Do NOT re-fetch.**
 
 The output includes:
 - `to_be_budgeted` — the **real** Ready to Assign (unassigned dollars). This is NOT income.
@@ -125,12 +125,14 @@ The output includes:
 
 ## Step 3: Rebalance (if needed)
 
+Use the budget-month results from pre-flight. **Do NOT re-fetch.**
+
 Trigger rebalancing if any of these are true:
 - Ready to Assign > $0 (dollars without jobs)
 - Any category has a negative balance
 - Any funded category is significantly underfunded vs its target
 
-Follow the `/ynab-rebalance` workflow:
+Follow the `/ynab-rebalance` workflow (skip its pre-flight and fetch steps — data is already loaded):
 1. Analyze for over/under-funded categories
 2. Propose specific dollar moves with tradeoff reasoning
 3. Wait for approval
@@ -142,9 +144,7 @@ If everything looks balanced, say so and skip.
 
 ## Step 4: Account Balances
 
-```bash
-uvx --from "$YNAB_AGENT_DIR" ynab-agent fetch accounts
-```
+Use the accounts results from pre-flight. **Do NOT re-fetch.**
 
 Show a simple table: account name, type, balance, cleared, uncleared.
 

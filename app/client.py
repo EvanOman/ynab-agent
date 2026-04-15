@@ -124,6 +124,7 @@ def get_transactions(
                     account_name=t.account_name,
                     memo=t.memo,
                     approved=t.approved,
+                    cleared=t.cleared.value if t.cleared else "uncleared",
                     is_split=is_split,
                 )
             )

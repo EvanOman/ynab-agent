@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from app.models import CategoryInfo, Config, GoalType, TransactionInfo
+from app.models import CategoryInfo, Config, GoalType, TransactionInfo, dollars_to_milliunits
 
 
 def test_transaction_amount_dollars():
@@ -44,3 +44,17 @@ def test_config_defaults():
 def test_goal_type_enum():
     assert GoalType.MONTHLY_FUNDING == "MF"
     assert GoalType.TARGET_BALANCE_BY_DATE == "TBD"
+
+
+def test_dollars_to_milliunits_basic():
+    assert dollars_to_milliunits(10.00) == 10000
+    assert dollars_to_milliunits(45.23) == 45230
+    assert dollars_to_milliunits(-45.23) == -45230
+    assert dollars_to_milliunits(0) == 0
+
+
+def test_dollars_to_milliunits_rounds_to_cent():
+    assert dollars_to_milliunits(99.999) == 100000  # rounds to $100.00
+    assert dollars_to_milliunits(0.001) == 0  # rounds to $0.00
+    assert dollars_to_milliunits(49.995) == 50000  # rounds to $50.00
+    assert dollars_to_milliunits(1.01) == 1010

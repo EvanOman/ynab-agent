@@ -18,7 +18,7 @@ def _clean_history(tmp_path, monkeypatch):
 def _make_assignment(
     category_id: str = "cat1",
     category_name: str = "Groceries",
-    amount_milliunits: int = 50000,
+    amount: float = 50.0,
     month: str = "current",
     reasoning: str = "Weekly grocery budget top-up",
 ) -> AssignmentDecision:
@@ -26,7 +26,7 @@ def _make_assignment(
         timestamp=datetime.now(UTC),
         category_id=category_id,
         category_name=category_name,
-        amount_milliunits=amount_milliunits,
+        amount=amount,
         month=month,
         reasoning=reasoning,
     )
@@ -39,13 +39,13 @@ class TestAssignmentDecisionModel:
             timestamp=ts,
             category_id="cat1",
             category_name="Groceries",
-            amount_milliunits=150000,
+            amount=150.0,
             month="2026-04-01",
             reasoning="Underfunded for the month",
         )
         assert d.category_id == "cat1"
         assert d.category_name == "Groceries"
-        assert d.amount_milliunits == 150000
+        assert d.amount == 150.0
         assert d.month == "2026-04-01"
         assert d.reasoning == "Underfunded for the month"
         assert d.timestamp == ts
@@ -55,7 +55,7 @@ class TestAssignmentDecisionModel:
             timestamp=datetime.now(UTC),
             category_id="cat1",
             category_name="Groceries",
-            amount_milliunits=50000,
+            amount=50.0,
         )
         assert d.month == "current"
         assert d.reasoning == ""
@@ -66,7 +66,7 @@ class TestAssignmentDecisionModel:
         restored = AssignmentDecision.model_validate_json(json_str)
         assert restored.category_id == original.category_id
         assert restored.category_name == original.category_name
-        assert restored.amount_milliunits == original.amount_milliunits
+        assert restored.amount == original.amount
         assert restored.month == original.month
         assert restored.reasoning == original.reasoning
 
@@ -75,7 +75,7 @@ class TestAssignmentDecisionModel:
         data = d.model_dump()
         assert isinstance(data, dict)
         assert data["category_id"] == "cat1"
-        assert data["amount_milliunits"] == 50000
+        assert data["amount"] == 50.0
 
 
 class TestRecordAssignmentDecisions:
